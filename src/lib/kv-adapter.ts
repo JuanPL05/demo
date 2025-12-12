@@ -25,7 +25,7 @@ async function detectStorageMode(): Promise<StorageMode> {
         try {
           await window.spark.kv.keys()
           storageMode = 'spark'
-          console.log('[KV Adapter] Using Spark KV storage')
+          console.log('[KV Adapter] ✅ Using Spark KV storage - Data persists across sessions and devices')
           return 'spark'
         } catch (error) {
           console.warn('[KV Adapter] Spark KV not accessible, checking for GitHub Gist storage')
@@ -49,7 +49,7 @@ async function detectStorageMode(): Promise<StorageMode> {
           
           if (response.ok) {
             storageMode = 'gist'
-            console.log('[KV Adapter] Using GitHub Gist storage (shared database)')
+            console.log('[KV Adapter] ✅ Using GitHub Gist storage - Data shared across devices via Gist')
             return 'gist'
           }
         }
@@ -58,11 +58,11 @@ async function detectStorageMode(): Promise<StorageMode> {
       }
 
       storageMode = 'shared'
-      console.log('[KV Adapter] Using shared localStorage (data only visible on this browser)')
+      console.log('[KV Adapter] ⚠️ Using shared localStorage - Data only persists on this browser')
       return 'shared'
     } catch (error) {
       storageMode = 'shared'
-      console.warn('[KV Adapter] Using shared localStorage fallback')
+      console.warn('[KV Adapter] ⚠️ Using shared localStorage fallback')
       return 'shared'
     }
   })()
@@ -419,4 +419,36 @@ export function getStorageMode(): StorageMode | null {
 
 export function getGistId(): string | null {
   return gistId
+}
+
+export async function getStorageInfo(): Promise<{
+  mode: StorageMode | null
+  details: string
+  isPersistent: boolean
+  isShared: boolean
+}> {
+  const mode = await detectStorageMode()
+  
+  if (mode === 'spark') {
+    return {
+      mode: 'spark',
+      details: 'Usando Spark KV - Los datos persisten entre sesiones y dispositivos',
+      isPersistent: true,
+      isShared: true
+    }
+  } else if (mode === 'gist') {
+    return {
+      mode: 'gist',
+      details: `Usando GitHub Gist - Los datos se comparten mediante Gist ID: ${gistId}`,
+      isPersistent: true,
+      isShared: true
+    }
+  } else {
+    return {
+      mode: 'shared',
+      details: 'Usando localStorage - Los datos solo persisten en este navegador',
+      isPersistent: true,
+      isShared: false
+    }
+  }
 }

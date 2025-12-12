@@ -52,11 +52,11 @@ Sistema multi-rol con gestión completa de datos, evaluaciones en tiempo real, c
 - **Success criteria**: Cálculos correctos por tipo de programa, rankings precisos
 
 ### 6. Sistema de Almacenamiento Adaptativo
-- **Functionality**: Detección automática del entorno y configuración de almacenamiento persistente compartido
-- **Purpose**: Garantizar que los datos persistan y se compartan entre todos los usuarios, tanto en desarrollo (Spark) como en producción (Vercel)
+- **Functionality**: Detección automática del entorno y configuración de almacenamiento persistente compartido entre dispositivos
+- **Purpose**: Garantizar que TODOS los datos (programas, equipos, proyectos, evaluaciones) persistan automáticamente y se compartan entre dispositivos en tiempo real cuando se despliega en Vercel
 - **Trigger**: Aplicación se carga en cualquier entorno
-- **Progression**: App detecta entorno → Usa Spark KV (si disponible) → Sino, verifica GitHub Gist → Sino, usa localStorage temporal → Admin puede configurar Gist desde panel
-- **Success criteria**: En Spark, datos persisten automáticamente. En Vercel, datos se comparten entre usuarios tras configurar GitHub Gist
+- **Progression**: App detecta entorno → Usa Spark KV automáticamente en Vercel (persistencia automática entre sesiones y dispositivos) → En desarrollo local usa localStorage compartido → Panel admin muestra claramente el modo de almacenamiento activo
+- **Success criteria**: En Vercel con Spark, todos los datos persisten automáticamente entre sesiones y dispositivos sin configuración adicional. Panel admin muestra badges visuales del estado de persistencia (✅ Spark KV para Vercel, ⚠️ localStorage para local)
 
 ## Edge Case Handling
 
@@ -68,8 +68,8 @@ Sistema multi-rol con gestión completa de datos, evaluaciones en tiempo real, c
 - **Múltiples Jueces Simultáneos**: Cada evaluación se guarda independientemente sin conflictos
 - **Separación de Roles**: Jueces NO tienen acceso al dashboard general, solo ven su panel de evaluación personal
 - **Detalles de Proyecto**: Modal muestra evaluaciones desglosadas por juez, pregunta y bloque
-- **Producción sin Spark KV**: Sistema detecta que está en Vercel y muestra configuración de GitHub Gist en panel admin
-- **Múltiples Administradores**: Todos los admins pueden configurar el mismo Gist ID para acceso compartido a datos
+- **Persistencia Automática en Vercel**: Cuando se despliega en Vercel, Spark KV activa automáticamente persistencia entre dispositivos y sesiones sin necesidad de configuración adicional
+- **Desarrollo Local**: En desarrollo local (sin Spark KV), datos se guardan en localStorage compartido del navegador para testing
 
 ## Design Direction
 
