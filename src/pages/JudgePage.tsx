@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Warning, CheckCircle, CaretDown, CaretUp, ChartBar } from '@phosphor-icons/react'
 import { StarRating } from '@/components/StarRating'
 import { JudgeDashboard } from '@/components/JudgeDashboard'
+import { JudgeInitialSetup } from '@/components/JudgeInitialSetup'
 import {
   validateJudgeToken,
   getProjects,
@@ -30,6 +31,7 @@ interface JudgePageProps {
 export function JudgePage({ token, navigate }: JudgePageProps) {
   const [judge, setJudge] = useState<Judge | null>(null)
   const [loading, setLoading] = useState(true)
+  const [needsConfiguration, setNeedsConfiguration] = useState(false)
   const [votingClosed, setVotingClosed] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
@@ -44,6 +46,15 @@ export function JudgePage({ token, navigate }: JudgePageProps) {
   useEffect(() => {
     const validateAndLoad = async () => {
       try {
+        const savedToken = localStorage.getItem('meetup_github_token')
+        const savedGistId = localStorage.getItem('meetup_gist_id')
+
+        if (!savedToken || !savedGistId) {
+          setNeedsConfiguration(true)
+          setLoading(false)
+          return
+        }
+
         const closed = await getVotingClosed()
         setVotingClosed(closed)
 
@@ -130,6 +141,16 @@ export function JudgePage({ token, navigate }: JudgePageProps) {
   const myEvaluationCount = myEvaluations.length
   const totalQuestions = questions.length * projects.length
   const completionPercentage = totalQuestions > 0 ? (myEvaluationCount / totalQuestions) * 100 : 0
+
+  const handleConfigurationComplete = (configToken: string, configGistId: string) => {
+    setNeedsConfiguration(false)
+    setLoading(true)
+    window.location.reload()
+  }
+
+  if (needsConfiguration) {
+    return <JudgeInitialSetup onConfigured={handleConfigurationComplete} />
+  }
 
   if (loading) {
     return (

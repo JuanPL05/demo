@@ -32,6 +32,17 @@ async function detectStorageMode(): Promise<StorageMode> {
         }
       }
 
+      const savedToken = localStorage.getItem(GITHUB_TOKEN_KEY)
+      const savedGistId = localStorage.getItem(GIST_STORAGE_KEY)
+
+      if (savedToken && savedGistId) {
+        githubToken = savedToken
+        gistId = savedGistId
+        storageMode = 'gist'
+        console.log('[KV Adapter] ✅ Usando GitHub Gist - Los datos se sincronizan entre todos los dispositivos')
+        return 'gist'
+      }
+
       storageMode = 'shared'
       console.log('[KV Adapter] ✅ Usando localStorage compartido - Todos los usuarios en este navegador verán los mismos datos')
       return 'shared'
@@ -283,6 +294,8 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       return await window.spark.kv.get<T>(key)
+    } else if (mode === 'gist') {
+      return await getFromGist<T>(key)
     } else {
       return getFromSharedStorage<T>(key)
     }
@@ -293,6 +306,8 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       await window.spark.kv.set(key, value)
+    } else if (mode === 'gist') {
+      await setToGist(key, value)
     } else {
       setToSharedStorage(key, value)
     }
@@ -303,6 +318,8 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       await window.spark.kv.delete(key)
+    } else if (mode === 'gist') {
+      await deleteFromGist(key)
     } else {
       deleteFromSharedStorage(key)
     }
@@ -313,6 +330,8 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       return await window.spark.kv.keys()
+    } else if (mode === 'gist') {
+      return await getKeysFromGist()
     } else {
       return getKeysFromSharedStorage()
     }
@@ -396,6 +415,13 @@ export async function getStorageInfo(): Promise<{
     return {
       mode: 'spark',
       details: 'Los datos se guardan en Spark KV y se comparten automáticamente entre todos los usuarios y dispositivos',
+      isPersistent: true,
+      isShared: true
+    }
+  } else if (mode === 'gist') {
+    return {
+      mode: 'gist',
+      details: 'Los datos se guardan en GitHub Gist y se sincronizan entre todos los usuarios y dispositivos configurados',
       isPersistent: true,
       isShared: true
     }
