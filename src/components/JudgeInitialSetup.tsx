@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-  onConfigured: (token: string
-
-  const [githubToken, setGithubToken] = useState('')
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { GithubLogo, Key, Info } from '@phosphor-icons/react'
+import { toast } from 'sonner'
 
 interface JudgeInitialSetupProps {
   onConfigured: (token: string, gistId: string) => void
@@ -16,24 +16,14 @@ export function JudgeInitialSetup({ onConfigured }: JudgeInitialSetupProps) {
   const [gistId, setGistId] = useState('')
   const [loading, setLoading] = useState(false)
 
-      localStorage.setItem('meetup
-
-      onConfigured(githubToken, gistId)
-      toast.
+  const handleSave = async () => {
+    if (!githubToken.trim() || !gistId.trim()) {
+      toast.error('Por favor completa todos los campos')
+      return
     }
 
-
-    <div 
-        <CardHeader className="text-center space-y-2">
-            <div c
-            </div>
-          
-        
-
-        </CardHeader>
-          <div className="space-y-2">
-       
-
+    setLoading(true)
+    try {
       localStorage.setItem('meetup_github_token', githubToken)
       localStorage.setItem('meetup_gist_id', gistId)
 
@@ -70,21 +60,21 @@ export function JudgeInitialSetup({ onConfigured }: JudgeInitialSetupProps) {
               GitHub Token
             </Label>
             <Input
-          </Alert>
+              id="github-token"
               type="password"
-            onClick={handleSave}
+              placeholder="ghp_..."
               value={githubToken}
               onChange={(e) => setGithubToken(e.target.value)}
               className="h-11"
-        </Card
+            />
             <p className="text-sm text-muted-foreground">
               Token de acceso personal de GitHub con permisos de gist
             </p>
+          </div>
 
-
-
+          <div className="space-y-2">
             <Label htmlFor="gist-id" className="flex items-center gap-2 text-base font-semibold">
-
+              <GithubLogo size={16} />
               Gist ID
             </Label>
             <Input
@@ -98,7 +88,7 @@ export function JudgeInitialSetup({ onConfigured }: JudgeInitialSetupProps) {
             <p className="text-sm text-muted-foreground">
               ID del Gist donde se almacenarán los datos
             </p>
-
+          </div>
 
           <Alert className="bg-blue-50 border-blue-200">
             <Info size={16} className="text-blue-600" />
@@ -106,17 +96,17 @@ export function JudgeInitialSetup({ onConfigured }: JudgeInitialSetupProps) {
               <strong>Nota:</strong> Esta información debe ser proporcionada por el administrador del sistema.
               Ambos valores son necesarios para sincronizar tus evaluaciones con el resto del equipo.
             </AlertDescription>
+          </Alert>
 
-
-
+          <Button
             onClick={handleSave}
             disabled={loading || !githubToken.trim() || !gistId.trim()}
             className="w-full h-12 text-base font-semibold bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600"
-
+          >
             {loading ? 'Validando...' : 'Guardar Configuración'}
-
+          </Button>
         </CardContent>
-
+      </Card>
     </div>
-
+  )
 }
