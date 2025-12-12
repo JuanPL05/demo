@@ -1,38 +1,15 @@
-import { useState } from 'react'
-import { Gear, ChartBar, Trophy, Lightning, Circle, CheckCircle, Clock, Users, SignIn } from '@phosphor-icons/react'
+import { Gear, ChartBar, Trophy, Lightning, CheckCircle, Clock, Users } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { SystemDiagnostics } from '@/components/SystemDiagnostics'
-import { toast } from 'sonner'
 
 interface HomePageProps {
   navigate: (route: 'home' | 'admin' | 'dashboard' | 'judge', token?: string) => void
 }
 
 export function HomePage({ navigate }: HomePageProps) {
-  const [judgeToken, setJudgeToken] = useState('')
-  const [isValidating, setIsValidating] = useState(false)
-
   console.log('[v0] HomePage loaded successfully')
-
-  const handleJudgeAccess = async () => {
-    if (!judgeToken.trim()) {
-      toast.error('Por favor ingresa tu token de acceso')
-      return
-    }
-
-    setIsValidating(true)
-    try {
-      navigate('judge', judgeToken.trim())
-    } catch (error) {
-      toast.error('Error al acceder. Verifica tu token.')
-    } finally {
-      setIsValidating(false)
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/50 to-green-50/40">
@@ -105,37 +82,21 @@ export function HomePage({ navigate }: HomePageProps) {
               </div>
               <CardTitle className="text-foreground">Portal de Evaluación</CardTitle>
               <CardDescription>
-                Los jueces acceden con su token único
+                Los jueces acceden mediante su enlace único
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="judge-token" className="text-sm font-medium mb-2 block">
-                  Token de Acceso
-                </Label>
-                <Input
-                  id="judge-token"
-                  type="text"
-                  placeholder="Ingresa tu token"
-                  value={judgeToken}
-                  onChange={(e) => setJudgeToken(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleJudgeAccess()
-                    }
-                  }}
-                  className="w-full"
-                />
+              <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-900 mb-2">
+                  <strong>Para jueces:</strong>
+                </p>
+                <p className="text-sm text-blue-800">
+                  Usa el enlace personalizado que recibiste del administrador para acceder a tu panel de evaluación.
+                </p>
+                <p className="text-xs text-blue-700 mt-2 font-mono">
+                  Formato: {window.location.origin}/#/judge/[tu-token]
+                </p>
               </div>
-              <Button
-                onClick={handleJudgeAccess}
-                disabled={isValidating}
-                className="w-full"
-                size="lg"
-              >
-                <SignIn size={20} className="mr-2" />
-                {isValidating ? 'Validando...' : 'Acceder como Juez'}
-              </Button>
             </CardContent>
           </Card>
         </div>

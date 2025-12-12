@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowLeft, Eye } from '@phosphor-icons/react'
+import { ArrowLeft, Eye, Copy, Link } from '@phosphor-icons/react'
 import { SeedManager } from '@/components/admin/SeedManager'
 import { EntityManager } from '@/components/admin/EntityManager'
 import { StorageConfig } from '@/components/admin/StorageConfig'
@@ -352,14 +352,30 @@ export function AdminPage({ navigate }: AdminPageProps) {
                     return badges
                   }}
                   customActions={(judge) => (
-                    <Button
-                      size="sm"
-                      variant="default"
-                      onClick={() => navigate('judge', judge.token)}
-                      title="Ir a vista de evaluación"
-                    >
-                      <Eye size={14} />
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const baseUrl = window.location.origin
+                          const judgeUrl = `${baseUrl}/#/judge/${judge.token}`
+                          navigator.clipboard.writeText(judgeUrl)
+                          toast.success('Enlace copiado al portapapeles')
+                        }}
+                        title="Copiar enlace del juez"
+                      >
+                        <Copy size={14} className="mr-1" />
+                        Enlace
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => navigate('judge', judge.token)}
+                        title="Ir a vista de evaluación"
+                      >
+                        <Eye size={14} />
+                      </Button>
+                    </div>
                   )}
                 />
               </div>

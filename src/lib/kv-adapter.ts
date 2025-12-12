@@ -25,44 +25,19 @@ async function detectStorageMode(): Promise<StorageMode> {
         try {
           await window.spark.kv.keys()
           storageMode = 'spark'
-          console.log('[KV Adapter] ✅ Using Spark KV storage - Data persists across sessions and devices')
+          console.log('[KV Adapter] ✅ Usando Spark KV - Los datos se comparten automáticamente entre todos los usuarios')
           return 'spark'
         } catch (error) {
-          console.warn('[KV Adapter] Spark KV not accessible, checking for GitHub Gist storage')
+          console.warn('[KV Adapter] Spark KV no accesible, verificando almacenamiento compartido local')
         }
-      }
-
-      try {
-        const savedGistId = localStorage.getItem(GIST_STORAGE_KEY)
-        const savedToken = localStorage.getItem(GITHUB_TOKEN_KEY)
-        
-        if (savedGistId && savedToken) {
-          gistId = savedGistId
-          githubToken = savedToken
-          
-          const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-            headers: {
-              'Authorization': `token ${savedToken}`,
-              'Accept': 'application/vnd.github.v3+json'
-            }
-          })
-          
-          if (response.ok) {
-            storageMode = 'gist'
-            console.log('[KV Adapter] ✅ Using GitHub Gist storage - Data shared across devices via Gist')
-            return 'gist'
-          }
-        }
-      } catch (error) {
-        console.warn('[KV Adapter] GitHub Gist not accessible, falling back to shared localStorage')
       }
 
       storageMode = 'shared'
-      console.log('[KV Adapter] ⚠️ Using shared localStorage - Data only persists on this browser')
+      console.log('[KV Adapter] ✅ Usando localStorage compartido - Todos los usuarios en este navegador verán los mismos datos')
       return 'shared'
     } catch (error) {
       storageMode = 'shared'
-      console.warn('[KV Adapter] ⚠️ Using shared localStorage fallback')
+      console.warn('[KV Adapter] ✅ Usando localStorage compartido (fallback)')
       return 'shared'
     }
   })()
@@ -308,8 +283,6 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       return await window.spark.kv.get<T>(key)
-    } else if (mode === 'gist') {
-      return await getFromGist<T>(key)
     } else {
       return getFromSharedStorage<T>(key)
     }
@@ -320,8 +293,6 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       await window.spark.kv.set(key, value)
-    } else if (mode === 'gist') {
-      await setToGist(key, value)
     } else {
       setToSharedStorage(key, value)
     }
@@ -332,8 +303,6 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       await window.spark.kv.delete(key)
-    } else if (mode === 'gist') {
-      await deleteFromGist(key)
     } else {
       deleteFromSharedStorage(key)
     }
@@ -344,8 +313,6 @@ export const kvAdapter = {
     
     if (mode === 'spark') {
       return await window.spark.kv.keys()
-    } else if (mode === 'gist') {
-      return await getKeysFromGist()
     } else {
       return getKeysFromSharedStorage()
     }
@@ -417,10 +384,6 @@ export function getStorageMode(): StorageMode | null {
   return storageMode
 }
 
-export function getGistId(): string | null {
-  return gistId
-}
-
 export async function getStorageInfo(): Promise<{
   mode: StorageMode | null
   details: string
@@ -432,23 +395,16 @@ export async function getStorageInfo(): Promise<{
   if (mode === 'spark') {
     return {
       mode: 'spark',
-      details: 'Usando Spark KV - Los datos persisten entre sesiones y dispositivos',
-      isPersistent: true,
-      isShared: true
-    }
-  } else if (mode === 'gist') {
-    return {
-      mode: 'gist',
-      details: `Usando GitHub Gist - Los datos se comparten mediante Gist ID: ${gistId}`,
+      details: 'Los datos se guardan en Spark KV y se comparten automáticamente entre todos los usuarios y dispositivos',
       isPersistent: true,
       isShared: true
     }
   } else {
     return {
       mode: 'shared',
-      details: 'Usando localStorage - Los datos solo persisten en este navegador',
+      details: 'Los datos se guardan localmente y se comparten entre todos los usuarios de este navegador (Admin y Jueces)',
       isPersistent: true,
-      isShared: false
+      isShared: true
     }
   }
 }
