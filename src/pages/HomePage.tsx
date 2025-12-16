@@ -187,7 +187,7 @@ export function HomePage({ navigate }: HomePageProps) {
 
         <div className="text-center border-t pt-8">
           <p className="text-sm text-muted-foreground">
-            Sistema de Evaluación MeetUp Demo Day • Banco Plaza
+            Sistema de Conceptual Dynamic • Pando Labs © 2025
           </p>
         </div>
       </div>
