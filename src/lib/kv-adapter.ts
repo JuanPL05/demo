@@ -10,6 +10,19 @@ let storageModeCheckPromise: Promise<StorageMode> | null = null
 let gistId: string | null = null
 let githubToken: string | null = null
 
+// Simple mutex para evitar race conditions en operaciones Gist
+let gistWriteLock = false
+async function acquireGistWriteLock(): Promise<void> {
+  while (gistWriteLock) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  gistWriteLock = true
+}
+
+function releaseGistWriteLock(): void {
+  gistWriteLock = false
+}
+
 async function detectStorageMode(): Promise<StorageMode> {
   if (storageMode !== null) {
     return storageMode
@@ -178,32 +191,46 @@ async function getFromGist<T>(key: string): Promise<T | undefined> {
 }
 
 async function setToGist<T>(key: string, value: T): Promise<void> {
+  await acquireGistWriteLock()
   try {
     if (!gistId || !githubToken) {
       console.error('[KV Adapter] Gist not configured')
       return
     }
     
-    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+    // Obtener datos actuales
+    const getResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'
       }
     })
     
+    if (!getResponse.ok) {
+      console.error(`[KV Adapter] Error reading Gist: ${getResponse.status} ${getResponse.statusText}`)
+      if (getResponse.status === 403) {
+        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes. Verifica que tu token tiene permisos de "gist"')
+      }
+      return
+    }
+    
+    const gist = await getResponse.json()
+    const file = gist.files?.['database.json']
     let allData: Record<string, any> = {}
     
-    if (response.ok) {
-      const gist = await response.json()
-      const file = gist.files?.['database.json']
-      if (file?.content) {
+    if (file?.content) {
+      try {
         allData = JSON.parse(file.content)
+      } catch (parseError) {
+        console.error('[KV Adapter] Error parsing Gist content:', parseError)
+        allData = {}
       }
     }
     
     allData[key] = value
     
-    await fetch(`https://api.github.com/gists/${gistId}`, {
+    // Actualizar Gist
+    const updateResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `token ${githubToken}`,
@@ -218,12 +245,30 @@ async function setToGist<T>(key: string, value: T): Promise<void> {
         }
       })
     })
+    
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text()
+      console.error(`[KV Adapter] ❌ Error al actualizar Gist: ${updateResponse.status} ${updateResponse.statusText}`)
+      console.error(`[KV Adapter] Respuesta: ${errorText}`)
+      
+      if (updateResponse.status === 403) {
+        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes. Verifica que tu token tiene permisos de "gist"')
+      } else if (updateResponse.status === 401) {
+        console.error('[KV Adapter] ❌ Error 401: Token inválido o expirado')
+      }
+      throw new Error(`Failed to update Gist: ${updateResponse.status}`)
+    }
+    
+    console.log(`[KV Adapter] ✅ Datos guardados en Gist para key: ${key}`)
   } catch (error) {
     console.error(`[KV Adapter] Gist set error for key "${key}":`, error)
+  } finally {
+    releaseGistWriteLock()
   }
 }
 
 async function deleteFromGist(key: string): Promise<void> {
+  await acquireGistWriteLock()
   try {
     if (!gistId || !githubToken) return
     
@@ -234,7 +279,10 @@ async function deleteFromGist(key: string): Promise<void> {
       }
     })
     
-    if (!response.ok) return
+    if (!response.ok) {
+      console.error(`[KV Adapter] Error reading Gist for delete: ${response.status} ${response.statusText}`)
+      return
+    }
     
     const gist = await response.json()
     const file = gist.files?.['database.json']
@@ -243,7 +291,7 @@ async function deleteFromGist(key: string): Promise<void> {
     const allData = JSON.parse(file.content)
     delete allData[key]
     
-    await fetch(`https://api.github.com/gists/${gistId}`, {
+    const updateResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
       method: 'PATCH',
       headers: {
         'Authorization': `token ${githubToken}`,
@@ -258,8 +306,23 @@ async function deleteFromGist(key: string): Promise<void> {
         }
       })
     })
+    
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text()
+      console.error(`[KV Adapter] ❌ Error al eliminar de Gist: ${updateResponse.status} ${updateResponse.statusText}`)
+      console.error(`[KV Adapter] Respuesta: ${errorText}`)
+      
+      if (updateResponse.status === 403) {
+        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes')
+      }
+      throw new Error(`Failed to delete from Gist: ${updateResponse.status}`)
+    }
+    
+    console.log(`[KV Adapter] ✅ Dato eliminado del Gist para key: ${key}`)
   } catch (error) {
     console.error(`[KV Adapter] Gist delete error for key "${key}":`, error)
+  } finally {
+    releaseGistWriteLock()
   }
 }
 
