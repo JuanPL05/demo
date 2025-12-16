@@ -1,3 +1,19 @@
+/**
+ * KV Adapter - Sistema de persistencia con caché y batch updates
+ * 
+ * Modos de almacenamiento (en orden de preferencia):
+ * 1. Spark KV (GitHub) - Automático en GitHub Codespaces/Spark
+ * 2. GitHub Gist - Manual via token + Gist ID
+ * 3. localStorage compartido - Fallback local
+ * 
+ * Para evitar rate limiting de GitHub API (5000 requests/hora):
+ * - Caché en memoria: GET requests devuelven datos en caché (30s TTL)
+ * - Batch updates: Agrupa múltiples cambios en 1 PATCH (cada 2s)
+ * - Flush on unload: Sincroniza cambios pendientes al cerrar la sesión
+ * 
+ * Flujo: set() → cola de cambios + caché local → (2s después) → PATCH a Gist
+ */
+
 const KV_PREFIX = 'spark_kv_'
 const SHARED_STORAGE_KEY = 'meetup_shared_db_v2'
 const GIST_STORAGE_KEY = 'meetup_gist_id'
@@ -21,6 +37,150 @@ async function acquireGistWriteLock(): Promise<void> {
 
 function releaseGistWriteLock(): void {
   gistWriteLock = false
+}
+
+// Caché local para evitar rate limit - almacena todos los datos del Gist
+let gistCache: Record<string, any> | null = null
+let gistCacheTimestamp: number = 0
+const GIST_CACHE_DURATION = 30000 // 30 segundos
+
+// Cola de cambios pendientes para batch updates
+let pendingGistChanges: Map<string, any> = new Map()
+let gistSaveTimeout: ReturnType<typeof setTimeout> | null = null
+const GIST_BATCH_DELAY = 2000 // Agrupa cambios en 2 segundos
+
+function isCacheValid(): boolean {
+  return gistCache !== null && (Date.now() - gistCacheTimestamp) < GIST_CACHE_DURATION
+}
+
+async function loadGistToCache(): Promise<Record<string, any>> {
+  if (isCacheValid() && gistCache !== null) {
+    return gistCache
+  }
+
+  try {
+    if (!gistId || !githubToken) return {}
+    
+    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    })
+    
+    if (!response.ok) {
+      if (response.status === 403) {
+        const errorData = await response.json()
+        if (errorData.message?.includes('API rate limit')) {
+          console.error('[KV Adapter] ⏱️ Rate limit de GitHub API alcanzado. Esperando...')
+        }
+      }
+      return gistCache || {}
+    }
+    
+    const gist = await response.json()
+    const file = gist.files?.['database.json']
+    let allData: Record<string, any> = {}
+    
+    if (file?.content) {
+      try {
+        allData = JSON.parse(file.content)
+      } catch (parseError) {
+        console.error('[KV Adapter] Error parsing Gist content:', parseError)
+      }
+    }
+    
+    gistCache = allData
+    gistCacheTimestamp = Date.now()
+    console.log('[KV Adapter] 📦 Caché del Gist cargado')
+    return allData
+  } catch (error) {
+    console.error('[KV Adapter] Error loading Gist to cache:', error)
+    return gistCache || {}
+  }
+}
+
+function scheduleBatchGistSave(): void {
+  if (gistSaveTimeout) {
+    clearTimeout(gistSaveTimeout)
+  }
+  
+  gistSaveTimeout = setTimeout(async () => {
+    await flushGistChanges()
+  }, GIST_BATCH_DELAY)
+}
+
+async function flushGistChanges(): Promise<void> {
+  if (pendingGistChanges.size === 0) return
+  
+  const changes = Object.fromEntries(pendingGistChanges)
+  pendingGistChanges.clear()
+  
+  console.log(`[KV Adapter] 💾 Guardando ${Object.keys(changes).length} cambios pendientes...`)
+  
+  await acquireGistWriteLock()
+  try {
+    if (!gistId || !githubToken) {
+      console.error('[KV Adapter] Gist not configured')
+      return
+    }
+    
+    // Usar caché como base, aplicar cambios
+    let allData = await loadGistToCache()
+    
+    // Aplicar cambios (undefined significa eliminar)
+    Object.entries(changes).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete allData[key]
+      } else {
+        allData[key] = value
+      }
+    })
+    
+    const updateResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: {
+          'database.json': {
+            content: JSON.stringify(allData, null, 2)
+          }
+        }
+      })
+    })
+    
+    if (!updateResponse.ok) {
+      const errorData = await updateResponse.json()
+      console.error(`[KV Adapter] ❌ Error al actualizar Gist: ${updateResponse.status}`)
+      
+      if (updateResponse.status === 403) {
+        if (errorData.message?.includes('API rate limit')) {
+          console.error('[KV Adapter] ⏱️ Rate limit alcanzado. Los cambios quedarán pendientes.')
+          // Reencolar los cambios
+          Object.entries(changes).forEach(([k, v]) => {
+            pendingGistChanges.set(k, v)
+          })
+          scheduleBatchGistSave()
+        } else {
+          console.error('[KV Adapter] ❌ Permisos insuficientes. Verifica que tu token tiene permisos de "gist"')
+        }
+      }
+      return
+    }
+    
+    // Actualizar caché con los datos guardados
+    gistCache = allData
+    gistCacheTimestamp = Date.now()
+    console.log(`[KV Adapter] ✅ ${Object.keys(changes).length} cambios guardados en Gist`)
+  } catch (error) {
+    console.error('[KV Adapter] Error flushing Gist changes:', error)
+  } finally {
+    releaseGistWriteLock()
+  }
 }
 
 async function detectStorageMode(): Promise<StorageMode> {
@@ -169,21 +329,9 @@ async function getFromGist<T>(key: string): Promise<T | undefined> {
   try {
     if (!gistId || !githubToken) return undefined
     
-    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
-    
-    if (!response.ok) return undefined
-    
-    const gist = await response.json()
-    const file = gist.files?.['database.json']
-    if (!file?.content) return undefined
-    
-    const allData = JSON.parse(file.content)
-    return allData[key]
+    // Usar caché si está disponible
+    const data = await loadGistToCache()
+    return data[key]
   } catch (error) {
     console.error(`[KV Adapter] Gist get error for key "${key}":`, error)
     return undefined
@@ -191,138 +339,48 @@ async function getFromGist<T>(key: string): Promise<T | undefined> {
 }
 
 async function setToGist<T>(key: string, value: T): Promise<void> {
-  await acquireGistWriteLock()
   try {
     if (!gistId || !githubToken) {
       console.error('[KV Adapter] Gist not configured')
       return
     }
     
-    // Obtener datos actuales
-    const getResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
+    // Agregar a cambios pendientes (usa caché local, no hace GET)
+    pendingGistChanges.set(key, value)
     
-    if (!getResponse.ok) {
-      console.error(`[KV Adapter] Error reading Gist: ${getResponse.status} ${getResponse.statusText}`)
-      if (getResponse.status === 403) {
-        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes. Verifica que tu token tiene permisos de "gist"')
-      }
-      return
+    // Actualizar caché localmente también
+    if (!gistCache) {
+      gistCache = {}
     }
+    gistCache[key] = value
     
-    const gist = await getResponse.json()
-    const file = gist.files?.['database.json']
-    let allData: Record<string, any> = {}
+    console.log(`[KV Adapter] 📝 Cambio pendiente: ${key} (total pendientes: ${pendingGistChanges.size})`)
     
-    if (file?.content) {
-      try {
-        allData = JSON.parse(file.content)
-      } catch (parseError) {
-        console.error('[KV Adapter] Error parsing Gist content:', parseError)
-        allData = {}
-      }
-    }
-    
-    allData[key] = value
-    
-    // Actualizar Gist
-    const updateResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        files: {
-          'database.json': {
-            content: JSON.stringify(allData, null, 2)
-          }
-        }
-      })
-    })
-    
-    if (!updateResponse.ok) {
-      const errorText = await updateResponse.text()
-      console.error(`[KV Adapter] ❌ Error al actualizar Gist: ${updateResponse.status} ${updateResponse.statusText}`)
-      console.error(`[KV Adapter] Respuesta: ${errorText}`)
-      
-      if (updateResponse.status === 403) {
-        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes. Verifica que tu token tiene permisos de "gist"')
-      } else if (updateResponse.status === 401) {
-        console.error('[KV Adapter] ❌ Error 401: Token inválido o expirado')
-      }
-      throw new Error(`Failed to update Gist: ${updateResponse.status}`)
-    }
-    
-    console.log(`[KV Adapter] ✅ Datos guardados en Gist para key: ${key}`)
+    // Programar guardado en batch
+    scheduleBatchGistSave()
   } catch (error) {
     console.error(`[KV Adapter] Gist set error for key "${key}":`, error)
-  } finally {
-    releaseGistWriteLock()
   }
 }
 
 async function deleteFromGist(key: string): Promise<void> {
-  await acquireGistWriteLock()
   try {
     if (!gistId || !githubToken) return
     
-    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
+    // Agregar a cambios pendientes con undefined para indicar eliminación
+    pendingGistChanges.set(key, undefined)
     
-    if (!response.ok) {
-      console.error(`[KV Adapter] Error reading Gist for delete: ${response.status} ${response.statusText}`)
-      return
+    // Actualizar caché también
+    if (gistCache) {
+      delete gistCache[key]
     }
     
-    const gist = await response.json()
-    const file = gist.files?.['database.json']
-    if (!file?.content) return
+    console.log(`[KV Adapter] 🗑️ Eliminación pendiente: ${key}`)
     
-    const allData = JSON.parse(file.content)
-    delete allData[key]
-    
-    const updateResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        files: {
-          'database.json': {
-            content: JSON.stringify(allData, null, 2)
-          }
-        }
-      })
-    })
-    
-    if (!updateResponse.ok) {
-      const errorText = await updateResponse.text()
-      console.error(`[KV Adapter] ❌ Error al eliminar de Gist: ${updateResponse.status} ${updateResponse.statusText}`)
-      console.error(`[KV Adapter] Respuesta: ${errorText}`)
-      
-      if (updateResponse.status === 403) {
-        console.error('[KV Adapter] ❌ Error 403: Permisos insuficientes')
-      }
-      throw new Error(`Failed to delete from Gist: ${updateResponse.status}`)
-    }
-    
-    console.log(`[KV Adapter] ✅ Dato eliminado del Gist para key: ${key}`)
+    // Programar guardado en batch
+    scheduleBatchGistSave()
   } catch (error) {
     console.error(`[KV Adapter] Gist delete error for key "${key}":`, error)
-  } finally {
-    releaseGistWriteLock()
   }
 }
 
@@ -397,6 +455,13 @@ export const kvAdapter = {
       return await getKeysFromGist()
     } else {
       return getKeysFromSharedStorage()
+    }
+  },
+
+  async flush(): Promise<void> {
+    const mode = await detectStorageMode()
+    if (mode === 'gist') {
+      await flushGistChanges()
     }
   }
 }

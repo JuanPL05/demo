@@ -3,6 +3,7 @@ import { HomePage } from '@/pages/HomePage'
 import { AdminPage } from '@/pages/AdminPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { JudgePage } from '@/pages/JudgePage'
+import { kvAdapter } from '@/lib/kv-adapter'
 
 type Route = 'home' | 'admin' | 'dashboard' | 'judge'
 
@@ -27,6 +28,16 @@ function App() {
         setCurrentRoute('judge')
       }
     }
+  }, [])
+
+  // Sincronizar cambios pendientes antes de cerrar
+  useEffect(() => {
+    const handleBeforeUnload = async () => {
+      await kvAdapter.flush()
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
 
   const navigate = (route: Route, token?: string) => {
